@@ -20,5 +20,5 @@ temp.ts
 .env.development.local
 .env.test.local
 .env.production.local
-.envrc
 .vscode
+.direnv

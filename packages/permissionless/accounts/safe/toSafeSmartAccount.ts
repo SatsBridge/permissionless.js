@@ -12,8 +12,11 @@ import {
     type Transport,
     type TypedData,
     type TypedDataDefinition,
+    type UnionPartialBy,
     type WalletClient,
+    type Prettify,
     concat,
+    concatHex,
     decodeFunctionData,
     encodeAbiParameters,
     encodeFunctionData,
@@ -1124,7 +1127,14 @@ export type SafeSmartAccountImplementation<
         //     factory: { abi: typeof FactoryAbi; address: Address }
         // }
     >,
-    { sign: NonNullable<SmartAccountImplementation["sign"]> }
+    {
+        sign: NonNullable<SmartAccountImplementation["sign"]>,
+        hashUserOperation: (
+            parameters: UnionPartialBy<UserOperation, 'sender'> & {
+                chainId?: number | undefined
+            },
+        ) => Promise<Hex>
+    }
 >
 
 export type ToSafeSmartAccountReturnType<
@@ -1670,6 +1680,61 @@ export async function toSafeSmartAccount<
             }
 
             return signatures
+        },
+        async hashUserOperation(parameters) {
+            const { chainId = await getMemoizedChainId(), ...userOperation } =
+                parameters
+
+            const message = {
+                safe: userOperation.sender,
+                callData: userOperation.callData,
+                nonce: userOperation.nonce,
+                initCode: userOperation.initCode ?? "0x",
+                maxFeePerGas: userOperation.maxFeePerGas,
+                maxPriorityFeePerGas: userOperation.maxPriorityFeePerGas,
+                preVerificationGas: userOperation.preVerificationGas,
+                verificationGasLimit: userOperation.verificationGasLimit,
+                callGasLimit: userOperation.callGasLimit,
+                paymasterAndData: userOperation.paymasterAndData ?? "0x",
+                validAfter: validAfter,
+                validUntil: validUntil,
+                entryPoint: entryPoint.address
+            }
+
+            if ("initCode" in userOperation) {
+                message.paymasterAndData = userOperation.paymasterAndData ?? "0x"
+            }
+
+            if ("factory" in userOperation) {
+                if (userOperation.factory && userOperation.factoryData) {
+                    message.initCode = concatHex([
+                        userOperation.factory,
+                        userOperation.factoryData
+                    ])
+                }
+                if (!userOperation.sender) {
+                    throw new Error("Sender is required")
+                }
+                message.paymasterAndData = getPaymasterAndData({
+                    ...userOperation,
+                    sender: userOperation.sender
+                })
+            }
+
+            const hash = hashTypedData({
+                domain: {
+                    chainId,
+                    verifyingContract: safe4337ModuleAddress
+                },
+                types:
+                    entryPoint.version === "0.6"
+                        ? EIP712_SAFE_OPERATION_TYPE_V06
+                        : EIP712_SAFE_OPERATION_TYPE_V07,
+                primaryType: "SafeOp",
+                message: message
+            })
+
+            return hash
         }
     }) as Promise<ToSafeSmartAccountReturnType<entryPointVersion>>
 }
