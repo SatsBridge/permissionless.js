@@ -18,9 +18,13 @@
   in {
     devShells.default = pkgs.mkShell {
       packages = builtins.attrValues {
-        inherit (pkgs) nodejs;
+        inherit (pkgs) nodejs_23;
         inherit (pkgs.importNpmLock.hooks) linkNodeModulesHook;
-      };
+      } ++ [
+        (pkgs.yarn.override {
+          nodejs = pkgs.nodejs_23;
+        })
+      ];
     };
   });
 }
